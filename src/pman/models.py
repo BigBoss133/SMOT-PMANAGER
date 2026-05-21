@@ -113,3 +113,47 @@ class Report(Base):
     ai_model: Mapped[str | None] = mapped_column(String(100))
 
     project: Mapped["Project"] = relationship(back_populates="reports")
+
+
+class WBSTask(Base):
+    __tablename__ = "wbs_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    parent_id: Mapped[str | None] = mapped_column(String(50))
+    duration_days: Mapped[int | None] = mapped_column(Integer)
+    dependencies: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="planned")
+
+
+class Issue(Base):
+    __tablename__ = "issues"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="medium")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    description: Mapped[str | None] = mapped_column(Text)
+    resolution: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Risk(Base):
+    __tablename__ = "risks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    probability: Mapped[str] = mapped_column(String(20), default="medium")
+    impact: Mapped[str] = mapped_column(String(20), default="medium")
+    mitigation: Mapped[str | None] = mapped_column(Text)
+    owner: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="identified")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
