@@ -1,4 +1,3 @@
-import pytest
 
 from pman.templates import TemplateGenerator
 

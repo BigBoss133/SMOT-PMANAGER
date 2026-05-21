@@ -6,13 +6,12 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.table import Table
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from pman.config import settings
 from pman.editor import EditorManager
 from pman.github import GitHubClient
-from pman.models import Base, ProjectStatus
+from pman.models import ProjectStatus
 from pman.ollama import OllamaClient
 from pman.orchestrator import FeedbackOrchestrator
 from pman.repository import ProjectRepository
@@ -25,20 +24,37 @@ console = Console()
 plan_app = typer.Typer(name="plan", help="Project plan management")
 app.add_typer(plan_app)
 
+_db_async_engine = None
+_db_async_session_factory = None
 
-def _get_db_session():
-    engine = create_engine(f"sqlite:///{settings.db_path}")
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine)
-    return session_factory()
+
+def _init_db():
+    global _db_async_engine, _db_async_session_factory
+    if _db_async_engine is None:
+        _db_async_engine = create_async_engine(
+            settings.sqlalchemy_database_uri
+        )
+        _db_async_session_factory = async_sessionmaker(
+            _db_async_engine, expire_on_commit=False
+        )
+
+
+async def _db_session():
+    _init_db()
+    async with _db_async_session_factory() as session:
+        yield session
 
 
 @plan_app.command()
 def new(name: str):
     """Create a new project plan."""
-    session = _get_db_session()
-    repo = ProjectRepository(session)
-    project = repo.create_project(name)
+    asyncio.run(_new(name))
+
+
+async def _new(name: str):
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        project = await repo.create_project(name)
 
     template = TemplateGenerator()
     content = template.generate(name)
@@ -56,9 +72,13 @@ def new(name: str):
 @plan_app.command()
 def continue_(project_id: int = typer.Argument(..., help="Project ID to continue")):
     """Continue editing an existing project plan."""
-    session = _get_db_session()
-    repo = ProjectRepository(session)
-    project = repo.get_project(project_id)
+    asyncio.run(_continue(project_id))
+
+
+async def _continue(project_id: int):
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        project = await repo.get_project(project_id)
 
     if not project:
         console.print(f"[red]Project {project_id} not found[/]")
@@ -68,7 +88,7 @@ def continue_(project_id: int = typer.Argument(..., help="Project ID to continue
     content = editor.get_latest_content(project.name) or ""
 
     orchestrator = FeedbackOrchestrator()
-    result = orchestrator.run_loop(project.name, initial_content=content)
+    result = await orchestrator.run_loop(project.name, initial_content=content)
 
     console.print(f"[green]Loop completed in {result.iterations} iterations[/]")
     if result.completed:
@@ -83,16 +103,22 @@ def status(
     ),
 ):
     """Check project status."""
-    session = _get_db_session()
-    repo = ProjectRepository(session)
-    project = repo.get_project(project_id)
+    asyncio.run(_status(project_id, force_complete))
+
+
+async def _status(project_id: int, force_complete: bool):
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        project = await repo.get_project(project_id)
 
     if not project:
         console.print(f"[red]Project {project_id} not found[/]")
         raise typer.Exit(1)
 
     if force_complete:
-        repo.update_project_status(project_id, ProjectStatus.DONE)
+        async with _db_session() as session:
+            repo = ProjectRepository(session)
+            await repo.update_project_status(project_id, ProjectStatus.DONE)
         console.print(f"[green]Project {project_id} force-completed[/]")
         return
 
@@ -111,14 +137,62 @@ def status(
 
 
 @plan_app.command()
+def check(
+    project_id: int = typer.Argument(..., help="Project ID to check"),
+    section: str = typer.Option(..., "--section", help="Section name to analyze"),
+):
+    """Check a specific section with AI feedback."""
+    asyncio.run(_check(project_id, section))
+
+
+async def _check(project_id: int, section: str):
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        project = await repo.get_project(project_id)
+
+    if not project:
+        console.print(f"[red]Project {project_id} not found[/]")
+        raise typer.Exit(1)
+
+    orchestrator = FeedbackOrchestrator()
+    report = await orchestrator.check_section(project.name, section)
+
+    console.print(f"[bold]Section: {section}[/]")
+    console.print(f"Score: {report.overall_score}%")
+    console.print(f"Can export: {'yes' if report.can_export else 'no'}")
+
+    if report.items:
+        table = Table(title=f"Feedback for {section}", show_header=True)
+        table.add_column("Severity", style="bold")
+        table.add_column("Message")
+        table.add_column("Suggestion")
+        for item in report.items:
+            color = {"blocker": "red", "warning": "yellow", "info": "blue"}.get(
+                item.severity, "white"
+            )
+            table.add_row(
+                f"[{color}]{item.severity}[/{color}]",
+                item.message,
+                item.suggestion or "",
+            )
+        console.print(table)
+    else:
+        console.print("[green]No issues found[/]")
+
+
+@plan_app.command()
 def export(
     project_id: int = typer.Argument(..., help="Project ID to export"),
     populate_db: bool = typer.Option(False, "--populate-db", help="Populate execution tables"),
 ):
     """Export project plan to markdown."""
-    session = _get_db_session()
-    repo = ProjectRepository(session)
-    project = repo.get_project(project_id)
+    asyncio.run(_export(project_id, populate_db))
+
+
+async def _export(project_id: int, populate_db: bool):
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        project = await repo.get_project(project_id)
 
     if not project:
         console.print(f"[red]Project {project_id} not found[/]")
@@ -136,22 +210,24 @@ def export(
         blocks = validator.parse_yaml_blocks(content)
 
         wbs_data = blocks.get("wbs", {})
-        for task in wbs_data.get("wbs", []):
-            repo.create_wbs_task(
-                project_id, task.get("id", ""), task.get("name", ""),
-                duration_days=task.get("duration_days"),
-                dependencies=str(task.get("dependencies", [])),
-            )
+        async with _db_session() as session:
+            repo = ProjectRepository(session)
+            for task in wbs_data.get("wbs", []):
+                await repo.create_wbs_task(
+                    project_id, task.get("id", ""), task.get("name", ""),
+                    duration_days=task.get("duration_days"),
+                    dependencies=str(task.get("dependencies", [])),
+                )
 
-        risks_data = blocks.get("risks", {})
-        for risk in risks_data.get("risks", []):
-            repo.create_risk(
-                project_id, risk.get("description", ""),
-                probability=risk.get("probability", "medium"),
-                impact=risk.get("impact", "medium"),
-                mitigation=risk.get("mitigation", ""),
-                owner=risk.get("owner", ""),
-            )
+            risks_data = blocks.get("risks", {})
+            for risk in risks_data.get("risks", []):
+                await repo.create_risk(
+                    project_id, risk.get("description", ""),
+                    probability=risk.get("probability", "medium"),
+                    impact=risk.get("impact", "medium"),
+                    mitigation=risk.get("mitigation", ""),
+                    owner=risk.get("owner", ""),
+                )
 
         console.print("[green]Populated execution tables[/]")
 
@@ -159,9 +235,13 @@ def export(
 @plan_app.command("list")
 def list_projects():
     """List all projects."""
-    session = _get_db_session()
-    repo = ProjectRepository(session)
-    projects = repo.list_projects()
+    asyncio.run(_list_projects())
+
+
+async def _list_projects():
+    async with _db_session() as session:
+        repo = ProjectRepository(session)
+        projects = await repo.list_projects()
 
     table = Table(title="Projects", show_header=True)
     table.add_column("ID", style="cyan")

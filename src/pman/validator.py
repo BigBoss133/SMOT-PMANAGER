@@ -56,7 +56,8 @@ class ProjectValidator:
                 continue
             yaml_text = content[start + len(start_marker):end].strip()
             try:
-                blocks[block_name] = yaml.safe_load(yaml_text) or {}
+                parsed = yaml.safe_load(yaml_text)
+                blocks[block_name] = parsed if isinstance(parsed, dict) else {}
             except yaml.YAMLError:
                 blocks[block_name] = {}
         return blocks

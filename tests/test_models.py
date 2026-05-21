@@ -1,6 +1,5 @@
 """Test per pman.models — ORM models e relazioni."""
 
-from datetime import datetime, timezone
 
 from pman.models import Project, ProjectStatus, Report, Sprint, Task, TaskSource, TaskStatus
 

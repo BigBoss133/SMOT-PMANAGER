@@ -1,4 +1,3 @@
-import pytest
 
 from pman.feedback import AIFeedbackGenerator, FeedbackReport
 from pman.validator import CompletenessReport

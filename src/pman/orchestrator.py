@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 
 from pman.editor import EditorManager
@@ -23,7 +24,7 @@ class FeedbackOrchestrator:
         self.feedback = AIFeedbackGenerator()
         self.template = TemplateGenerator()
 
-    def run_loop(
+    async def run_loop(
         self,
         project_name: str,
         initial_content: str | None = None,
@@ -34,18 +35,25 @@ class FeedbackOrchestrator:
         for iteration in range(1, self.MAX_ITERATIONS + 1):
             result.iterations = iteration
 
-            content = self.editor.open_editor(content, project_name)
+            content = await asyncio.to_thread(
+                self.editor.open_editor, content, project_name
+            )
             if not content.strip():
                 break
 
-            self.editor.save_snapshot(content, project_name, iteration)
+            await asyncio.to_thread(
+                self.editor.save_snapshot, content, project_name, iteration
+            )
 
             completeness = self.validator.check_completeness(content)
 
             sections = self.validator.parse_sections(content)
             for section_name, section_text in sections.items():
-                report = self.feedback.generate_feedback(
-                    section_name, section_text, completeness
+                report = await asyncio.to_thread(
+                    self.feedback.generate_feedback,
+                    section_name,
+                    section_text,
+                    completeness,
                 )
                 result.feedback_reports.append(report)
 
@@ -59,9 +67,19 @@ class FeedbackOrchestrator:
     def _user_wants_to_exit(self, content: str) -> bool:
         return "<!-- DONE -->" in content or "# DONE" in content
 
-    def check_section(self, project_name: str, section: str) -> FeedbackReport:
-        content = self.editor.get_latest_content(project_name) or ""
+    async def check_section(
+        self, project_name: str, section: str
+    ) -> FeedbackReport:
+        content = await asyncio.to_thread(
+            self.editor.get_latest_content, project_name
+        )
+        content = content or ""
         sections = self.validator.parse_sections(content)
         section_text = sections.get(section, "")
         completeness = self.validator.check_completeness(content)
-        return self.feedback.generate_feedback(section, section_text, completeness)
+        return await asyncio.to_thread(
+            self.feedback.generate_feedback,
+            section,
+            section_text,
+            completeness,
+        )

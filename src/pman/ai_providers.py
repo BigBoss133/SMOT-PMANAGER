@@ -13,12 +13,12 @@ the provider is disabled for 120 seconds to prevent cascading errors.
 
 from __future__ import annotations
 
-import json
 import time
-import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+
+import httpx
 
 from pman.config import settings
 from pman.errors import AIError
@@ -39,7 +39,7 @@ class AIProvider(ABC):
     """
 
     @abstractmethod
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system: str = "",
@@ -89,19 +89,16 @@ class OllamaProvider(AIProvider):
     def _record_success(self) -> None:
         self._circuit.failures = 0
 
-    def _post(self, endpoint: str, data: dict) -> dict:
+    async def _post(self, endpoint: str, data: dict) -> dict:
         url = f"{self.host}{endpoint}"
-        payload = json.dumps(data).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=self.TTFT_TIMEOUT) as resp:
-            return json.loads(resp.read().decode())
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                url, json=data, timeout=self.TTFT_TIMEOUT
+            )
+            resp.raise_for_status()
+            return resp.json()
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system: str = "",
@@ -124,7 +121,7 @@ class OllamaProvider(AIProvider):
             payload["options"]["num_predict"] = max_tokens
 
         try:
-            result = self._post("/api/generate", payload)
+            result = await self._post("/api/generate", payload)
             self._record_success()
             return result.get("response", "")
         except Exception as exc:
@@ -147,21 +144,21 @@ class OpenAIProvider(AIProvider):
         self.model = getattr(settings, "openai_model", "gpt-4o-mini")
         self.base_url = "https://api.openai.com/v1/chat/completions"
 
-    def _post(self, data: dict) -> dict:
-        payload = json.dumps(data).encode("utf-8")
-        req = urllib.request.Request(
-            self.base_url,
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read().decode())
+    async def _post(self, data: dict) -> dict:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                self.base_url,
+                json=data,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}",
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            return resp.json()
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system: str = "",
@@ -178,7 +175,7 @@ class OpenAIProvider(AIProvider):
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        result = self._post(payload)
+        result = await self._post(payload)
         return result.get("choices", [{}])[0].get("message", {}).get("content", "")
 
 

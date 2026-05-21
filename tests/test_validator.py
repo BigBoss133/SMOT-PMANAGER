@@ -1,6 +1,5 @@
-import pytest
 
-from pman.validator import CompletenessReport, ProjectValidator
+from pman.validator import ProjectValidator
 
 
 class TestParseSections:
