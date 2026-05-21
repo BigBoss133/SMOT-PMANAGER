@@ -52,21 +52,26 @@ L'utente ha una dispensa universitaria di 134 pagine (Google Project Management 
 Trasformare SMOT-PMANAGER in uno strumento CLI interattivo che guida l'utente nella creazione di un Project Plan professionale, usando AI (RAG + prompt engineering sulla dispensa) per validare, suggerire e completare il contenuto.
 
 ### Concrete Deliverables
-- `src/pman/rag.py` — Pipeline RAG (estrazione PDF, chunking, embedding, ChromaDB)
+- `src/pman/rag.py` — Pipeline RAG con metadata filtering (capitolo/topic)
 - `src/pman/editor.py` — Gestione editor esterno e file temporanei
-- `src/pman/feedback.py` — Orchestratore loop AI (analizza → suggerisci → itera)
-- `src/pman/templates/` — Template markdown per Project Plan
+- `src/pman/orchestrator.py` — Loop AI section-based, advisory mode, force-complete
+- `src/pman/templates/` — Template markdown con blocchi YAML strutturati
 - `src/pman/ai_providers.py` — Provider AI unificato (Ollama + Cloud)
-- `src/pman/commands/plan.py` — Comandi CLI (`plan new/continue/status/export/list`)
-- `src/pman/validator.py` — Validatore completezza sezioni
+- `src/pman/validator.py` — Validatore YAML deterministico + analisi strutturale
+- `src/pman/feedback.py` — Generatore feedback con separazione blocker/warning
+- `src/pman/repository.py` — CRUD con modelli espansi (WBSTask, Issue, Risk)
+- `src/pman/commands/plan.py` — Comandi CLI (`new/check/continue/status/export/list`)
 - `tests/` — Test TDD per ogni modulo
 
 ### Definition of Done
-- [ ] `pman plan new` apre $EDITOR con template, AI analizza dopo ogni salvataggio
+- [ ] `pman plan new` apre $EDITOR con template Markdown+YAML, AI analizza se richiesto
+- [ ] `pman plan check --section wbs` analisi < 5 secondi (section-based)
+- [ ] `pman plan status --force-complete` override utente funzionante
 - [ ] `pman plan continue <id>` riprende una sessione esistente
-- [ ] `pman plan status <id>` mostra percentuale completezza per sezione
-- [ ] `pman plan export <id>` esporta il Project Plan finale in markdown
+- [ ] `pman plan export --populate-db` popola tabelle WBSTask/Issue/Risk
 - [ ] `pman plan list` elenca tutti i progetti
+- [ ] Validatore YAML rileva 2 Accountable nella stessa riga RACI
+- [ ] RAG metadata filter: query su WBS restituisce SOLO chunk Capitoli 13-14
 - [ ] `pytest` → tutti i test passano (copertura ≥ 80%)
 - [ ] AI funziona con Ollama locale E con API cloud (OpenAI)
 
@@ -85,6 +90,78 @@ Trasformare SMOT-PMANAGER in uno strumento CLI interattivo che guida l'utente ne
 - ❌ Grafici Gantt o diagrammi — solo descrizioni testuali
 - ❌ Multi-tenant / multi-user
 - ❌ Template multipli — un solo template iniziale
+
+---
+
+## Architecture Decisions (5 Falle Risolte)
+
+### 1. Markdown + YAML: Dati Strutturati nei Blocchi
+
+**Problema**: WBS, RACI e Budget in tabelle Markdown sono impossibili da validare deterministicamente. L'AI non può verificare che non ci siano due "Accountable" nella stessa riga RACI.
+
+**Soluzione**: Template con blocchi YAML incastonati nel Markdown:
+
+```markdown
+## Stakeholder Analysis + RACI
+
+Descrizione libera degli stakeholder...
+
+```yaml
+# BEGIN RACI
+raci_matrix:
+  - task: "Definire requisiti"
+    responsible: "Product Owner"
+    accountable: "Project Manager"  # UNICO Accountable
+    consulted: ["Tech Lead"]
+    informed: ["Stakeholder Board"]
+# END RACI
+```
+
+Il **Validator** (T8) userà `yaml.safe_load()` per estrarre e validare deterministicamente:
+- RACI: esattamente 1 Accountable per task
+- Budget: somma costi = totale
+- WBS: struttura ad albero senza cicli
+
+L'AI fornirà solo **analisi qualitativa** (es. "I rischi sono pertinenti?"), non validazione strutturale.
+
+### 2. Analisi Section-Based (non Full-Document)
+
+**Problema**: Rianalizzare l'intero documento (2000+ parole) a ogni salvataggio satura la context window e blocca l'utente per decine di secondi.
+
+**Soluzione**: Comando `pman plan check --section <nome>` per feedback mirato:
+- Estrae solo la sezione specifica dal Markdown
+- Query RAG solo sui capitoli pertinenti (metadata filtering)
+- Prompt AI ridotto (solo la sezione + contesto RAG)
+- Tempi di risposta < 5 secondi anche su modelli locali
+
+### 3. Paradigma "Advisory, not Mandatory"
+
+**Problema**: LLM locali possono allucinare o essere eccessivamente pedanti, bloccando l'utente.
+
+**Soluzione**:
+- `pman plan status --force-complete` — override utente esplicito
+- Feedback separato in **Blocker** (errori strutturali: manca Project Charter) e **Warning** (suggerimenti: "Considera di aggiungere più stakeholder")
+- L'utente può sempre esportare anche se il validatore non è al 100%
+
+### 4. RAG con Metadata Filtering
+
+**Problema**: Chunking a 512 token + cosine similarity può recuperare frammenti da capitoli sbagliati (es. consigli Agile in un progetto Waterfall).
+
+**Soluzione**: Ogni chunk in ChromaDB ha metadati `{"chapter": "13", "topic": "WBS"}`.
+Il retriever (T9) applica **hard filter** sui metadati: per la sezione WBS, cerca solo nei Capitoli 13-14.
+Questo elimina il rumore cross-metodologia.
+
+### 5. Database Ready per Execution/Monitoring
+
+**Problema**: Il file Markdown è statico. La dispensa descrive anche Execution e Monitoring (Work Performance Data, Change Request). L'architettura attuale non le supporta.
+
+**Soluzione**: Espandere i modelli SQLAlchemy (T12) con tabelle relazionali:
+- `Task` (WBS task tracciati)
+- `Issue` (Issue Log)
+- `Risk` (Risk Register con probabilità/impatto/stato)
+
+All'export (T18), un hook fa il parsing del Markdown e popola automaticamente queste tabelle.
+Questo prepara il terreno per futuri comandi `pman track` e `pman update` senza riscrivere l'architettura.
 
 ---
 
@@ -159,22 +236,22 @@ Max Concurrent: 7 (Waves 1, 2)
 |------|--------|------------|
 | T1 | 8, 9, 11, 12, 21 | — |
 | T2 | 3, 4, 9 | — |
-| T3 | 4, 9 | 2 |
-| T4 | 9 | 3 |
+| T3 | 4, 9 | 2 (metadata da chapters) |
+| T4 | 9 | 3 (metadata negli embeddings) |
 | T5 | 10, 13 | — |
 | T6 | 7, 8, 11, 15 | — |
 | T7 | 11, 15, 22 | 6 (template path) |
-| T8 | 11, 17 | 1 (test), 6 (template schema) |
-| T9 | 10, 11 | 4 (ChromaDB), 3 (embeddings) |
+| T8 | 11, 17 | 1 (test), 6 (template schema YAML) |
+| T9 | 10, 11 | 4 (ChromaDB+metadata), 3 (embeddings) |
 | T10 | 11 | 5 (config), 9 (RAG context) |
-| T11 | 15, 16 | 8 (validator), 9 (RAG), 10 (feedback), 14 (errors) |
-| T12 | 15, 16, 17, 18, 19 | 1 (test) |
+| T11 | 15, 16 | 8 (validator YAML), 9 (RAG filtered), 10 (feedback), 14 (errors) |
+| T12 | 15, 16, 17, 18, 19 | 1 (test) — models.py esteso con WBSTask, Issue, Risk |
 | T13 | 15 | 5 (config) |
 | T14 | 11, 16 | — |
 | T15 | 21 | 6 (template), 7 (editor), 11 (loop), 12 (CRUD), 13 (cloud AI) |
 | T16 | 21 | 11 (loop), 12 (CRUD), 14 (errors) |
 | T17 | 21 | 8 (validator), 12 (CRUD) |
-| T18 | 21 | 12 (CRUD) |
+| T18 | 21 | 12 (CRUD) — export con --populate-db |
 | T19 | 21 | 12 (CRUD) |
 | T20 | 15-19 | 15-19 |
 | T21 | F1-F4 | 15-19 (all CLI), 1 (test) |
@@ -264,9 +341,11 @@ Max Concurrent: 7 (Waves 1, 2)
   - Usare `pdftotext` via subprocess (già disponibile nel sistema) o PyMuPDF (fitz)
   - Implementare `extract_text(pdf_path) -> str` che restituisce tutto il testo
   - Implementare `extract_chapters(pdf_path) -> list[Chapter]` che suddivide per capitolo (basato su "CAPITOLO X:" pattern)
+  - **CRITICO (Falla 4)**: Ogni `Chapter` DEVE includere `number`, `title`, `topic` (topic mappato dal titolo: es. "WBS" → "wbs", "Rischi" → "risks") come metadati per il RAG metadata filtering
+  - Mappatura chapter→topic predefinita: Cap 7 → "charter", Cap 8-9 → "stakeholder/raci", Cap 13-14 → "wbs", Cap 17 → "budget", Cap 18 → "risks", Cap 28-34 → "agile"
   - Aggiungere `pymupdf` a pyproject.toml come dipendenza opzionale
   - Gestire errori: file non trovato, PDF corrotto, testo non estraibile
-  - Test TDD: PDF valido, PDF vuoto, PDF inesistente
+  - Test TDD: PDF valido, PDF vuoto, PDF inesistente + verifica metadati chapter
 
   **Must NOT do**:
   - Non fare OCR (se il PDF non è estraibile, errore chiaro)
@@ -329,9 +408,10 @@ Max Concurrent: 7 (Waves 1, 2)
   - Implementare chunking strategy: massimo 512 token per chunk, overlap 50 token, split per paragrafo
   - Supportare embedding via Ollama (`nomic-embed-text` model) E OpenAI (`text-embedding-3-small`)
   - Implementare metodo `embed_chunks(chunks: list[str]) -> list[list[float]]`
+  - **CRITICO (Falla 4)**: `chunk_text()` DEVE restituire `list[Chunk]` dove ogni Chunk ha `text`, `chapter_number`, `topic` — i metadati del capitolo vengono propagati dal PDFExtractor
   - Batch processing per ottimizzare chiamate API
   - Processare l'intera dispensa: ~134 pagine → ~200-300 chunk
-  - Test TDD: chunk size, overlap, embedding dimensions (768 per nomic, 1536 per OpenAI)
+  - Test TDD: chunk size, overlap, embedding dimensions (768 per nomic, 1536 per OpenAI) + metadati preservati
 
   **Must NOT do**:
   - Non hardcodare il modello di embedding
@@ -391,12 +471,15 @@ Max Concurrent: 7 (Waves 1, 2)
   **What to do**:
   - Creare `src/pman/vector_store.py` con classe `VectorStore`
   - Integrare ChromaDB (pip install chromadb)
-  - Implementare `add_documents(chunks, embeddings, metadata)` — indicizza chunk con metadati (capitolo, numero chunk)
-  - Implementare `search(query_embedding, k=5) -> list[Document]` — ricerca similarità
+  - Implementare `add_documents(chunks, embeddings, metadata)` — indicizza chunk con metadati (chapter_number, topic, titolo capitolo)
+  - **CRITICO (Falla 4)**: `search(query_embedding, k=5, filter_metadata=None)`:
+    - Se `filter_metadata={"topic": "wbs"}` → cerca SOLO nei chunk con topic="wbs"
+    - Usare `where` clause di ChromaDB per hard filter pre-query
+  - Implementare `search_by_section(section_name: str, ...)` che mappa automaticamente section→topic filter
   - Implementare `is_initialized() -> bool` — verifica se il DB ha dati
-  - Implementare `initialize_from_pdf(pdf_path)` — pipeline completa: estrai → chunk → embed → store
+  - Implementare `initialize_from_pdf(pdf_path)` — pipeline completa: estrai → chunk → embed → store (con metadati)
   - Aggiungere `chromadb` a pyproject.toml
-  - Test TDD: store vuoto, search con 0 risultati, inizializzazione doppia (idempotente)
+  - Test TDD: store vuoto, search con filter, search senza filter, inizializzazione doppia (idempotente)
 
   **Must NOT do**:
   - Non usare ChromaDB in modalità client-server (solo embedded/PersistentClient)
@@ -513,17 +596,29 @@ Max Concurrent: 7 (Waves 1, 2)
 - [ ] 6. **Project Template Markdown Generator**
 
   **What to do**:
-  - Creare `src/pman/templates/project_plan.md` — template base con tutte le 5 sezioni:
-    1. Project Charter (obiettivi, scope, vincoli, assunzioni)
-    2. Stakeholder Analysis + Matrice RACI
-    3. Work Breakdown Structure + Schedule
-    4. Risk Analysis (matrice probabilità/impatto)
-    5. Budget + Cost Estimation
+  - Creare `src/pman/templates/project_plan.md` — template con **blocchi YAML** incastonati nel Markdown:
+    1. **Project Charter**: testo libero (obiettivi, scope, vincoli, assunzioni)
+    2. **Stakeholder Analysis + RACI**: descrizione libera + blocco `# BEGIN RACI` / `# END RACI` con matrice YAML strutturata
+    3. **Work Breakdown Structure + Schedule**: descrizione + blocco `# BEGIN WBS` / `# END WBS` YAML
+    4. **Risk Analysis**: testo libero (analisi qualitativa) + blocco `# BEGIN RISKS` / `# END RISKS` YAML
+    5. **Budget + Cost Estimation**: descrizione + blocco `# BEGIN BUDGET` / `# END BUDGET` YAML
+  - **CRITICO (Falla 1)**: I blocchi YAML sono validabili deterministicamente. Esempio RACI:
+    ```yaml
+    # BEGIN RACI
+    raci_matrix:
+      - task: "Definire requisiti"
+        responsible: "Product Owner"
+        accountable: "Project Manager"  # ESATTAMENTE 1
+        consulted: ["Tech Lead"]
+        informed: ["Stakeholder Board"]
+    # END RACI
+    ```
   - Implementare `TemplateGenerator` in `src/pman/templates.py`:
-    - `generate() -> str` — restituisce il template con placeholder
+    - `generate() -> str` — restituisce il template con placeholder e blocchi YAML vuoti
     - `get_sections() -> list[str]` — lista nomi sezioni obbligatorie
-  - Aggiungere commenti guida nel template (es. `<!-- Inserisci qui gli obiettivi SMART -->`)
-  - Test TDD: template contiene tutte le 5 sezioni, placeholder sono sostituibili
+    - `get_yaml_blocks() -> list[str]` — lista nomi blocchi YAML attesi ("RACI", "WBS", "RISKS", "BUDGET")
+  - Aggiungere commenti guida nel template (`<!-- Inserisci qui gli obiettivi SMART -->`)
+  - Test TDD: template contiene tutte le 5 sezioni + 4 blocchi YAML, placeholder sono sostituibili
 
   **Must NOT do**:
   - Non creare più di 1 template
@@ -650,16 +745,21 @@ Max Concurrent: 7 (Waves 1, 2)
   **What to do**:
   - Creare `src/pman/validator.py` con classe `ProjectValidator`
   - Implementare `parse_sections(content: str) -> dict[str, str]` — estrae le 5 sezioni dal markdown
-  - Implementare `check_completeness(sections: dict) -> CompletenessReport`:
-    - Per ogni sezione: flag `present`, `word_count`, `has_content` (>50 parole)
-    - `overall_score` (0-100%) = sezioni complete / 5
-    - `missing_sections: list[str]`
-  - Implementare `get_suggestions(sections: dict) -> list[str]` — suggerimenti basati su regole (es. "RACI: aggiungere almeno 3 stakeholder")
-  - Test TDD: markdown vuoto, markdown senza sezioni, markdown con tutte sezioni, sezioni incomplete
+  - **CRITICO (Falla 1)**: `parse_yaml_blocks(content: str) -> dict[str, dict]`:
+    - Estrae blocchi tra `# BEGIN X` e `# END X` usando `yaml.safe_load()`
+    - Restituisce dict con chiavi: "raci", "wbs", "risks", "budget"
+  - **CRITICO (Falla 1)**: Validazione DETERMINISTICA (non AI) dei blocchi YAML:
+    - `validate_raci(raci_data) -> list[str]`: verifica ESATTAMENTE 1 Accountable per task, nomi ruoli validi
+    - `validate_budget(budget_data) -> list[str]`: verifica somma costi = totale dichiarato
+    - `validate_wbs(wbs_data) -> list[str]`: verifica struttura ad albero senza cicli/orfani
+  - Implementare `check_completeness(sections) -> CompletenessReport`:
+    - Combina validazione YAML (deterministica) + sezioni testo (presenza, word_count)
+    - Report separato: `yaml_errors` (bloccanti), `text_warnings` (suggerimenti)
+  - Test TDD: YAML valido, YAML con 2 Accountable, budget non bilanciato, WBS con task orfano
 
   **Must NOT do**:
-  - Non validare semantica (solo struttura)
-  - Non usare regex per parsing markdown — usare parser markdown (mistune o markdown-it-py)
+  - Non validare semantica del testo libero (lasciato all'AI)
+  - Non usare regex per parsing YAML — usare `yaml.safe_load()`
 
   **Recommended Agent Profile**:
   - **Category**: `quick`
@@ -720,15 +820,12 @@ Max Concurrent: 7 (Waves 1, 2)
 
   **What to do**:
   - Completare `src/pman/rag.py` con classe `RAGPipeline`
-  - Implementare `query(question: str, k: int = 5) -> RAGContext`:
-    - Genera embedding della domanda
-    - Cerca nel vector store i k chunk più rilevanti
-    - Costruisce contesto formattato: `## Capitolo X\n...content...`
-    - Restituisce `RAGContext(chunks, relevance_scores, formatted_context)`
-  - Implementare `query_section(section_name: str) -> RAGContext`:
-    - Query specializzata per sezione (es. "Come si scrive un Project Charter?")
-  - Aggiungere caching: stessa query = risultato cached (TTL: 5 minuti)
-  - Test TDD: query vuota, vector store non inizializzato, query con 0 risultati
+  - **CRITICO (Falla 4)**: `query(question: str, k: int = 5, section_filter: str = None) -> RAGContext`:
+    - Se `section_filter="wbs"` → mappa a topic="wbs" → hard filter `where={"topic": "wbs"}` su ChromaDB
+    - Questo GARANTISCE che per la sezione WBS vengano recuperati solo chunk dei Capitoli 13-14, non frammenti sparsi
+  - `query_section(section_name: str) -> RAGContext`: mappa automaticamente section→topic (charter→"charter", raci→"stakeholder/raci", wbs→"wbs", risks→"risks", budget→"budget")
+  - Aggiungere caching: stessa query+filter = risultato cached (TTL: 5 minuti)
+  - Test TDD: query senza filter, query con filter wbs (solo chunk WBS), filter inesistente → 0 risultati
 
   **Must NOT do**:
   - Non esporre l'implementazione interna del vector store
@@ -802,11 +899,14 @@ Max Concurrent: 7 (Waves 1, 2)
     - `OpenAIProvider` — API OpenAI (usando httpx async)
     - `AIFactory.create(settings) -> AIProvider` — factory pattern
   - Creare `src/pman/feedback.py` con classe `FeedbackGenerator`:
-    - `generate_feedback(content, validator_report, rag_context) -> str`:
-      - Prompt engineering: combina sezioni mancanti + contesto RAG
-      - System prompt: "Sei un project manager esperto. Usa il contesto della dispensa per suggerire miglioramenti."
-      - Usa AIFactory per il provider configurato
-  - Test TDD: mock provider per test deterministici
+    - `generate_feedback(content, validator_report, rag_context, section: str = None) -> FeedbackResult`
+    - **CRITICO (Falla 3)**: `FeedbackResult` ha DUE liste separate:
+      - `blockers: list[str]` — errori strutturali (manca Project Charter, RACI ha 2 Accountable, budget non bilanciato)
+      - `warnings: list[str]` — suggerimenti qualitativi ("Considera di aggiungere più stakeholder", "Il rischio X potrebbe essere sottostimato")
+    - **CRITICO (Falla 2)**: Se `section` è specificato, il prompt include SOLO quella sezione (+ contesto RAG filtrato), non l'intero documento
+    - System prompt: "Sei un project manager. Separa ERRORI STRUTTURALI da SUGGERIMENTI. Sii conciso."
+    - Usa AIFactory per il provider configurato
+  - Test TDD: mock provider per test deterministici, verifica separazione blockers/warnings
 
   **Must NOT do**:
   - Non hardcodare prompt in italiano nel codice — usare template file
@@ -876,26 +976,28 @@ Max Concurrent: 7 (Waves 1, 2)
 
   **What to do**:
   - Creare `src/pman/orchestrator.py` con classe `FeedbackLoop`
-  - Implementare `run(project_name: str) -> ProjectResult`:
-    ```
-    loop (max 10 iterazioni):
-      1. Apri editor con contenuto attuale
-      2. Se flag --done nel file → esci dal loop
-      3. Parsa sezioni + valida completezza
-      4. Se 100% → chiedi conferma, se ok esci
-      5. Query RAG per contesto pertinente
-      6. Genera feedback AI
-      7. Mostra feedback all'utente
-      8. Salva snapshot
-      9. Loop
-    ```
-  - Implementare `display_feedback(feedback: str)` — mostra feedback formattato nel terminale (Rich)
-  - Implementare `handle_done_signal(content: str) -> bool` — cerca `--done` o `## STATUS: COMPLETO`
-  - Test TDD: loop termina a 100%, loop termina con `--done`, loop termina a iterazione 10
+  - **CRITICO (Falla 2)**: Supportare DUE modalità:
+    1. `run_full(project_name)` — loop completo su tutto il documento (per `plan new`)
+    2. `run_section(project_name, section_name)` — analisi mirata su UNA sezione (per `plan check --section`)
+  - **CRITICO (Falla 3)**: Paradigma "Advisory, not Mandatory":
+    - Il loop NON blocca mai l'utente: a 100% chiede conferma ma permette export anche a < 100%
+    - `force_complete()` — metodo per marcare il progetto come completato indipendentemente dal validatore
+    - I blocker YAML sono mostrati in ROSSO, i warning in GIALLO — solo i blocker sono "raccomandati", mai "obbligatori"
+  - `run_full` loop (max 10 iterazioni):
+    1. Apri editor con contenuto attuale
+    2. Se flag `## STATUS: COMPLETO` o `--done` → esci
+    3. Parsa sezioni + parsing YAML deterministico
+    4. Per ogni sezione: mostra stato (YAML errori + testo warning)
+    5. L'utente sceglie: continuare, saltare a sezione specifica, o forzare completamento
+    6. Genera feedback AI (se l'utente lo richiede)
+    7. Salva snapshot
+  - Implementare `display_feedback(feedback: FeedbackResult)` — blockers in rosso, warnings in giallo (Rich)
+  - Test TDD: loop termina a 100%, `--done`, `force_complete()`, sezione singola
 
   **Must NOT do**:
   - Non superare 10 iterazioni
-  - Non salvare automaticamente senza snapshot
+  - MAI bloccare l'export — l'utente può sempre esportare
+  - Non forzare l'AI a runnare — l'utente sceglie se chiamarla
 
   **Recommended Agent Profile**:
   - **Category**: `deep`
@@ -966,16 +1068,18 @@ Max Concurrent: 7 (Waves 1, 2)
   - Creare `src/pman/database.py`:
     - `init_db()` — crea tabelle (Base.metadata.create_all)
     - `get_session()` — async session factory con SQLAlchemy async
+  - **CRITICO (Falla 5)**: Espandere `src/pman/models.py` con tabelle per la fase di Execution:
+    - `WBSTask`: id, project_id FK, parent_id FK (self-referential), title, description, status, assigned_to, estimated_hours, actual_hours, start_date, due_date
+    - `Issue`: id, project_id FK, title, description, severity, status, reported_by, assigned_to, resolution
+    - `Risk`: id, project_id FK, title, description, probability (1-5), impact (1-5), score (P×I), category, mitigation, contingency, status, owner
+    - Aggiornare `Project`: aggiungere campo `phase` (PLANNING/EXECUTION/MONITORING/CLOSED)
   - Creare `src/pman/repository.py` con classe `ProjectRepository`:
-    - `create(project_data) -> Project`
-    - `get_by_id(id) -> Project | None`
-    - `get_by_name(name) -> Project | None`
-    - `list_all() -> list[Project]`
-    - `update_status(id, status) -> Project`
-    - `save_snapshot(id, content, iteration) -> Project` (aggiorna metadata)
-  - Adattare `Project` model: aggiungere `metadata` JSON field per snapshots
+    - `create/get_by_id/get_by_name/list_all/update_status/save_snapshot` (base)
+    - `create_wbs_task/create_issue/create_risk` (execution)
+    - `get_wbs_tree(project_id)` — albero WBS ricorsivo
+    - `get_risk_matrix(project_id)` — matrice probabilità×impatto
   - Aggiungere `aiosqlite` a dipendenze
-  - Test TDD: CRUD completo, constraint unique name, status transitions
+  - Test TDD: CRUD completo, constraint unique name, WBS tree traversal, risk score calculation
 
   **Must NOT do**:
   - Non usare sessioni sincrone
@@ -1181,19 +1285,25 @@ Max Concurrent: 7 (Waves 1, 2)
 - [ ] 15. **`pman plan new` Command**
 
   **What to do**:
-  - Aggiungere comando `plan` con sottocomando `new` a `src/pman/cli.py`:
+  - Aggiungere comando `plan` con sottocomandi a `src/pman/cli.py`:
     ```
     pman plan new [--name NAME] [--editor EDITOR] [--provider {ollama,openai}]
+    pman plan check --section {charter|raci|wbs|risks|budget}
+    pman plan check --all
     ```
-  - Flusso:
+  - Flusso `plan new`:
     1. Genera template con `TemplateGenerator`
     2. Apri editor con `EditorManager.open_editor()`
-    3. Avvia `FeedbackLoop.run()`
-    4. Al completamento, salva progetto con `ProjectRepository`
-    5. Mostra riepilogo finale (punteggio, file path)
-  - Integrare tutti i moduli: template, editor, validator, RAG, feedback, orchestrator, repository
+    3. Avvia `FeedbackLoop.run_full()` — MAI bloccante
+    4. Al completamento (o force_complete), salva con `ProjectRepository`
+    5. Mostra riepilogo: blocker YAML (rossi) + warning AI (gialli) + % completezza
+  - **CRITICO (Falla 2)**: `plan check --section wbs`:
+    - Estrae solo la sezione WBS dal file
+    - Query RAG con metadata filter (solo capitoli WBS)
+    - Prompt AI ridotto → risposta < 5 secondi
+  - **CRITICO (Falla 3)**: `plan check --all` analizza tutte le sezioni ma l'utente può sempre esportare
   - Output finale: file markdown in `~/.pman/projects/{name}/plan.md`
-  - Test TDD: comando CLI con `CliRunner` di Typer, mock dell'editor
+  - Test TDD: comando CLI con `CliRunner`, mock editor, test `--section`
 
   **Must NOT do**:
   - Non creare il progetto se l'utente esce senza salvare (editor vuoto)
@@ -1321,15 +1431,18 @@ Max Concurrent: 7 (Waves 1, 2)
   **What to do**:
   - Aggiungere sottocomando `status`:
     ```
-    pman plan status <project_id_or_name>
+    pman plan status <project_id_or_name> [--force-complete]
     ```
   - Mostra tabella Rich con:
-    - Nome progetto, stato (ACTIVE/COMPLETED)
-    - Percentuale completezza per sezione (da `ProjectValidator`)
+    - Nome progetto, stato (PLANNING/EXECUTION/COMPLETED)
+    - Validazione YAML deterministica: errori RACI, errori Budget, errori WBS
+    - Validazione AI (se disponibile): blocker e warning separati
+    - Percentuale completezza per sezione
     - Iterazioni completate / 10
-    - Ultimo salvataggio (timestamp)
-  - Colori: verde per sezioni complete, giallo per parziali, rosso per mancanti
-  - Test TDD: progetto completo, progetto vuoto, progetto non trovato
+    - Ultimo salvataggio
+  - **CRITICO (Falla 3)**: `--force-complete` marca il progetto COMPLETED indipendentemente dal validatore
+  - Colori: rosso per blocker YAML, giallo per warning AI, verde per sezioni complete
+  - Test TDD: progetto completo, con errori YAML, force-complete
 
   **Must NOT do**:
   - Non mostrare contenuto del progetto (solo metriche)
@@ -1390,18 +1503,22 @@ Max Concurrent: 7 (Waves 1, 2)
   **What to do**:
   - Aggiungere sottocomando `export`:
     ```
-    pman plan export <project_id_or_name> [--output PATH]
+    pman plan export <project_id_or_name> [--output PATH] [--populate-db]
     ```
   - Esporta il Project Plan finale in markdown:
     - Se `--output` specificato, scrive lì
     - Altrimenti, `~/.pman/projects/{name}/plan.md`
   - Aggiunge header YAML con metadati (data, iterazioni, punteggio)
-  - Formatta con separatori chiari tra sezioni
-  - Test TDD: export con/senza --output, progetto non trovato
+  - **CRITICO (Falla 5)**: `--populate-db` esegue un hook che:
+    1. Fa il parsing dei blocchi YAML dal Markdown (RACI, WBS, Risks, Budget)
+    2. Popola le tabelle `WBSTask`, `Issue`, `Risk` nel database SQLite
+    3. Transizione `Project.phase` da PLANNING a EXECUTION
+    4. Questo prepara il terreno per futuri comandi `pman track` / `pman update`
+  - Test TDD: export con/senza --output, export con --populate-db verifica tabelle popolate, progetto non trovato
 
   **Must NOT do**:
-  - Non esportare progetti non completati (warning + conferma)
   - Non esportare in PDF/HTML
+  - Non forzare --populate-db (è opzionale)
 
   **Recommended Agent Profile**:
   - **Category**: `quick`
@@ -1858,10 +1975,10 @@ Max Concurrent: 7 (Waves 1, 2)
 
 ## Commit Strategy
 
-- **Wave 1**: `feat(pman): add test infra, PDF extraction, RAG pipeline` — T1-T7
-- **Wave 2**: `feat(pman): add feedback loop, validators, CRUD, AI providers` — T8-T14
-- **Wave 3**: `feat(pman): add plan CLI commands (new/continue/status/export/list)` — T15-T20
-- **Wave 4**: `feat(pman): add E2E tests, session recovery, polish` — T21-T24
+- **Wave 1**: `feat(pman): add test infra, PDF extraction with metadata, RAG pipeline with chunk metadata` — T1-T7
+- **Wave 2**: `feat(pman): add YAML validator, RAG metadata filter, AI feedback blockers/warnings, orchestrator advisory mode, CRUD expanded models` — T8-T14
+- **Wave 3**: `feat(pman): add plan CLI (new/check --section/continue/status --force-complete/export --populate-db/list)` — T15-T20
+- **Wave 4**: `feat(pman): add E2E tests, session recovery, cache, async refactor` — T21-T24
 - **FINAL**: `chore(pman): final verification and cleanup` — F1-F4
 
 ---
@@ -1876,18 +1993,33 @@ pytest tests/ -v
 
 # CLI smoke test
 pman plan new --name "Test Project" --editor cat
-# Expected: editor opens, AI analyzes
+# Expected: editor opens, template with YAML blocks
 
-# Export test
-pman plan export <id> --output /tmp/test-plan.md
-# Expected: valid markdown with all 5 sections
+# Section-based check (Falla 2)
+pman plan check --section wbs
+# Expected: response < 5s, solo contesto WBS
+
+# Force complete (Falla 3)
+pman plan status <id> --force-complete
+# Expected: progetto marcato COMPLETED
+
+# Export with DB population (Falla 5)
+pman plan export <id> --populate-db
+# Expected: tabelle WBSTask, Issue, Risk popolate
+
+# YAML validation (Falla 1)
+# Inserire RACI con 2 Accountable → il validatore deve segnalare errore
 ```
 
 ### Final Checklist
 - [ ] Tutti i "Must Have" presenti
 - [ ] Tutti i "Must NOT Have" assenti
-- [ ] Tutti i test passano
-- [ ] RAG funziona con dispensa completa
+- [ ] Tutti i test passano, coverage ≥ 80%
+- [ ] RAG metadata filter: query WBS → solo chunk Capitoli 13-14
+- [ ] YAML validator rileva 2 Accountable nella stessa riga RACI
+- [ ] AI feedback separa blocker (rossi) da warning (gialli)
+- [ ] `plan check --section` risponde in < 5 secondi
+- [ ] `plan status --force-complete` funziona come override
+- [ ] `plan export --populate-db` popola WBSTask, Issue, Risk
 - [ ] AI funziona sia con Ollama che con API cloud
-- [ ] Loop feedback termina correttamente (max 10 iterazioni o `--done`)
-- [ ] Progetti persistiti su SQLite e recuperabili
+- [ ] Loop feedback mai bloccante (utente può sempre esportare)
