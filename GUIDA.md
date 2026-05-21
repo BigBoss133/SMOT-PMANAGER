@@ -108,37 +108,16 @@ SMOT-PMANAGER/
 ├── .env.example
 └── README.md
 ```
-
-### Diagramma dei Componenti
-
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   CLI (Typer)│────▶│ Orchestrator │────▶│  Validator   │
-│  plan new    │     │  (loop)      │     │  (parser)    │
-│  plan status │     └──────┬───────┘     └──────────────┘
-└─────────────┘            │
-                           ▼
-                    ┌──────────────┐     ┌──────────────┐
-                    │   Feedback   │────▶│ AI Provider  │
-                    │   Generator  │     │ (Ollama/API) │
-                    └──────┬───────┘     └──────────────┘
-                           │
-                           ▼
-                    ┌──────────────┐     ┌──────────────┐
-                    │     RAG      │────▶│  VectorStore │
-                    │   Pipeline   │     │  (ChromaDB)  │
-                    └──────┬───────┘     └──────────────┘
-                           │
-                           ▼
-                    ┌──────────────┐
-                    │   Embedder   │
-                    │ (nomic/OpenAI│
-                    └──────────────┘
-
-┌──────────────┐     ┌──────────────┐
-│   Editor     │     │  Repository  │
-│   Manager    │     │  (SQLite)    │
-└──────────────┘     └──────────────┘
+```mermaid
+flowchart TD
+    CLI[CLI (Typer)] --> Orchestrator[Orchestrator]
+    Orchestrator --> Validator[Validator]
+    Validator --> Feedback[Feedback Generator]
+    Feedback --> AIProvider[AI Provider]
+    AIProvider -->|embeddings| VectorStore[Vector Store (ChromaDB)]
+    AIProvider -->|LLM| LLM[LLM Model]
+    VectorStore --> RAG[Retrieval Augmented Generation]
+    RAG --> Embedder[Embedder]
 ```
 
 ---
