@@ -1,6 +1,7 @@
 """Configurazione centralizzata via pydantic-settings."""
 
 from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,7 +43,12 @@ class Settings(BaseSettings):
 
     # ── RAG ───────────────────────────────────────────────────────────────────
     rag_pdf_path: str = Field(
-        default=str(Path.home() / "Scrivania" / "SmotPmanager" / "Google_PM_Dispensa_Universitaria_LIBRO.pdf"),
+        default=str(
+            Path.home()
+            / "Scrivania"
+            / "SmotPmanager"
+            / "Google_PM_Dispensa_Universitaria_LIBRO.pdf"
+        ),
         alias="PMAN_RAG_PDF_PATH",
     )
     rag_chunk_size: int = Field(default=512, alias="PMAN_RAG_CHUNK_SIZE")

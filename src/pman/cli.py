@@ -1,5 +1,4 @@
 import asyncio
-import os
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from pman.config import settings
 from pman.editor import EditorManager
 from pman.github import GitHubClient
-from pman.models import Base, Project, ProjectStatus
+from pman.models import Base, ProjectStatus
 from pman.ollama import OllamaClient
 from pman.orchestrator import FeedbackOrchestrator
 from pman.repository import ProjectRepository
@@ -30,8 +29,8 @@ app.add_typer(plan_app)
 def _get_db_session():
     engine = create_engine(f"sqlite:///{settings.db_path}")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    return Session()
+    session_factory = sessionmaker(bind=engine)
+    return session_factory()
 
 
 @plan_app.command()
@@ -79,7 +78,9 @@ def continue_(project_id: int = typer.Argument(..., help="Project ID to continue
 @plan_app.command()
 def status(
     project_id: int = typer.Argument(..., help="Project ID to check"),
-    force_complete: bool = typer.Option(False, "--force-complete", help="Override and mark as complete"),
+    force_complete: bool = typer.Option(
+        False, "--force-complete", help="Override and mark as complete",
+    ),
 ):
     """Check project status."""
     session = _get_db_session()
@@ -152,7 +153,7 @@ def export(
                 owner=risk.get("owner", ""),
             )
 
-        console.print(f"[green]Populated execution tables[/]")
+        console.print("[green]Populated execution tables[/]")
 
 
 @plan_app.command("list")
@@ -216,7 +217,7 @@ def backup(
 
 
 @app.command()
-def status():
+def system_status():
     """Stato di tutti i servizi."""
     console.print("\n[bold cyan]SMOT-PMANAGER Status[/]\n")
 
@@ -226,7 +227,8 @@ def status():
     table.add_column("Stato", style="bold")
 
     table.add_row("Ollama", settings.ollama_host, "[green]ONLINE[/]")
-    table.add_row("GitHub API", settings.github_api_url, "[green]CONFIGURATO[/]" if settings.github_token else "[red]NO TOKEN[/]")
+    gh_status = "[green]CONFIGURATO[/]" if settings.github_token else "[red]NO TOKEN[/]"
+    table.add_row("GitHub API", settings.github_api_url, gh_status)
     table.add_row("SQLite", settings.db_path, "[green]OK[/]")
     table.add_row("Redis", settings.redis_url, "[yellow]NON VERIFICATO[/]")
 
@@ -257,7 +259,8 @@ def repos():
             console.print(f"\n[bold cyan]Repo trovati: {len(data)}[/]\n")
             for r in data[:10]:
                 private = "🔒" if r.get("private") else "🌐"
-                console.print(f"  {private} [green]{r['full_name']}[/] — {r.get('description', 'N/A')}")
+                desc = r.get('description', 'N/A')
+                console.print(f"  {private} [green]{r['full_name']}[/] — {desc}")
         except Exception as e:
             console.print(f"[red]Errore: {e}[/]")
 

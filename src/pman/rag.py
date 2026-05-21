@@ -1,6 +1,5 @@
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 from pman.config import settings
 from pman.embedder import TextEmbedder
@@ -11,7 +10,7 @@ from pman.vector_store import VectorStore
 class RAGContext:
     question: str
     chunks: list[dict] = field(default_factory=list)
-    section_filter: Optional[str] = None
+    section_filter: str | None = None
 
 
 class RAGPipeline:
@@ -21,10 +20,10 @@ class RAGPipeline:
         self._cache: dict[str, tuple[list[dict], float]] = {}
         self._cache_ttl = 300
 
-    def _get_cache_key(self, question: str, section_filter: Optional[str]) -> str:
+    def _get_cache_key(self, question: str, section_filter: str | None) -> str:
         return f"{section_filter or 'all'}:{question}"
 
-    def _get_cached(self, key: str) -> Optional[list[dict]]:
+    def _get_cached(self, key: str) -> list[dict] | None:
         if key not in self._cache:
             return None
         results, timestamp = self._cache[key]
@@ -36,7 +35,7 @@ class RAGPipeline:
     def _set_cached(self, key: str, results: list[dict]) -> None:
         self._cache[key] = (results, time.time())
 
-    def query(self, question: str, k: int = 5, section_filter: Optional[str] = None) -> RAGContext:
+    def query(self, question: str, k: int = 5, section_filter: str | None = None) -> RAGContext:
         cache_key = self._get_cache_key(question, section_filter)
         cached = self._get_cached(cache_key)
         if cached is not None:

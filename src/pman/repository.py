@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from pman.models import Issue, Project, ProjectStatus, Risk, Sprint, Task, WBSTask
+from pman.models import Issue, Project, ProjectStatus, Risk, Task, WBSTask
 
 
 class ProjectRepository:

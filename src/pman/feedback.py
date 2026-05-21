@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Optional
 
-from pman.config import settings
-from pman.rag import RAGContext, RAGPipeline
+from pman.rag import RAGPipeline
 from pman.validator import CompletenessReport
 
 

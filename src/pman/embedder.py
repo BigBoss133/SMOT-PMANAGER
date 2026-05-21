@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from pathlib import Path
 
 
 @dataclass
@@ -35,7 +34,9 @@ class TextEmbedder:
                 ))
         return chunks
 
-    def embed_chunks(self, chunks: list[Chunk], provider: str = "ollama", model: str | None = None) -> list[list[float]]:
+    def embed_chunks(
+        self, chunks: list[Chunk], provider: str = "ollama", model: str | None = None,
+    ) -> list[list[float]]:
         from pman.config import settings
 
         if not chunks:
@@ -51,6 +52,7 @@ class TextEmbedder:
     def _embed_ollama(self, chunks: list[Chunk], model: str) -> list[list[float]]:
         import json
         import urllib.request
+
         from pman.config import settings
 
         host = settings.ollama_host.rstrip("/")
@@ -75,6 +77,7 @@ class TextEmbedder:
     def _embed_openai(self, chunks: list[Chunk], model: str) -> list[list[float]]:
         import json
         import urllib.request
+
         from pman.config import settings
 
         api_key = settings.ai_openai_api_key

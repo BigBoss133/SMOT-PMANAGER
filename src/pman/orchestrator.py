@@ -1,12 +1,9 @@
-import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
 
 from pman.editor import EditorManager
 from pman.feedback import AIFeedbackGenerator, FeedbackReport
 from pman.templates import TemplateGenerator
-from pman.validator import CompletenessReport, ProjectValidator
+from pman.validator import ProjectValidator
 
 
 @dataclass
@@ -29,7 +26,7 @@ class FeedbackOrchestrator:
     def run_loop(
         self,
         project_name: str,
-        initial_content: Optional[str] = None,
+        initial_content: str | None = None,
     ) -> LoopResult:
         result = LoopResult()
         content = initial_content or self.template.generate(project_name)

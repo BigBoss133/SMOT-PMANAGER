@@ -1,9 +1,7 @@
 import os
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
-from typing import Optional
 
 
 class EditorManager:
@@ -58,7 +56,7 @@ class EditorManager:
         snapshot_path.write_text(content, encoding="utf-8")
         return snapshot_path
 
-    def get_latest_content(self, project_name: str) -> Optional[str]:
+    def get_latest_content(self, project_name: str) -> str | None:
         project_dir = self.projects_dir / project_name
         draft_path = project_dir / "draft.md"
         if draft_path.exists():

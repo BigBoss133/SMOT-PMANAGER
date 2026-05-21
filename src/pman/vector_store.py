@@ -1,6 +1,5 @@
 import hashlib
 from pathlib import Path
-from typing import Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -8,7 +7,6 @@ from chromadb.config import Settings as ChromaSettings
 from pman.config import settings
 from pman.embedder import Chunk, TextEmbedder
 from pman.pdf_extractor import PDFExtractor
-
 
 _SECTION_TO_TOPIC = {
     "charter": "charter",
@@ -31,8 +29,8 @@ class VectorStore:
     ):
         self.chroma_path = chroma_path or settings.rag_chroma_path
         self.collection_name = collection_name or settings.rag_chroma_collection
-        self._client: Optional[chromadb.ClientAPI] = None
-        self._collection: Optional[chromadb.Collection] = None
+        self._client: chromadb.ClientAPI | None = None
+        self._collection: chromadb.Collection | None = None
 
     def _get_client(self) -> chromadb.ClientAPI:
         if self._client is None:
@@ -74,7 +72,7 @@ class VectorStore:
         metadatas = []
         embs = []
 
-        for chunk, embedding in zip(chunks, embeddings):
+        for chunk, embedding in zip(chunks, embeddings, strict=False):
             chunk_id = hashlib.md5(chunk.text.encode()).hexdigest()
             ids.append(chunk_id)
             documents.append(chunk.text)
@@ -95,7 +93,7 @@ class VectorStore:
         self,
         query_embedding: list[float],
         k: int = 5,
-        filter_metadata: Optional[dict] = None,
+        filter_metadata: dict | None = None,
     ) -> list[dict]:
         collection = self._get_collection()
         where = None

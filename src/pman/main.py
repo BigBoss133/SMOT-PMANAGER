@@ -1,6 +1,7 @@
 """Entry point per uvicorn."""
 
 import uvicorn
+
 from pman.config import settings
 
 if __name__ == "__main__":

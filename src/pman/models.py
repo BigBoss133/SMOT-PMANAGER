@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
-from enum import Enum as PyEnum
+from datetime import datetime
+from enum import StrEnum
 
-from sqlalchemy import String, ForeignKey, Text, Integer, Float, DateTime, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -14,7 +13,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class TaskStatus(str, PyEnum):
+class TaskStatus(StrEnum):
     BACKLOG = "backlog"
     TODO = "todo"
     IN_PROGRESS = "in_progress"
@@ -22,7 +21,7 @@ class TaskStatus(str, PyEnum):
     DONE = "done"
 
 
-class TaskSource(str, PyEnum):
+class TaskSource(StrEnum):
     GITHUB = "github"
     VAULT = "vault"
     CODE = "code"
@@ -30,7 +29,7 @@ class TaskSource(str, PyEnum):
     MANUAL = "manual"
 
 
-class ProjectStatus(str, PyEnum):
+class ProjectStatus(StrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
     ARCHIVED = "archived"
@@ -54,8 +53,8 @@ class Project(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    tasks: Mapped[list["Task"]] = relationship(back_populates="project")
-    reports: Mapped[list["Report"]] = relationship(back_populates="project")
+    tasks: Mapped[list[Task]] = relationship(back_populates="project")
+    reports: Mapped[list[Report]] = relationship(back_populates="project")
 
 
 class Task(Base):
@@ -82,7 +81,7 @@ class Task(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    project: Mapped["Project"] = relationship(back_populates="tasks")
+    project: Mapped[Project] = relationship(back_populates="tasks")
 
 
 class Sprint(Base):
@@ -112,7 +111,7 @@ class Report(Base):
     )
     ai_model: Mapped[str | None] = mapped_column(String(100))
 
-    project: Mapped["Project"] = relationship(back_populates="reports")
+    project: Mapped[Project] = relationship(back_populates="reports")
 
 
 class WBSTask(Base):

@@ -97,10 +97,14 @@ class PDFExtractor:
                             if continuation:
                                 break
                             continue
-                        if re.match(r"^\d+\.", stripped) or stripped.lower().startswith("dispensa di"):
+                        if re.match(r"^\d+\.", stripped) or stripped.lower().startswith(
+                            "dispensa di",
+                        ):
                             break
                         continuation.append(stripped)
-                    full_title = f"{raw_title} {' '.join(continuation)}".strip() if continuation else raw_title
+                    full_title = f"{raw_title} {' '.join(continuation)}".strip()
+                    if not continuation:
+                        full_title = raw_title
                     # Deduplicate: keep first occurrence of each chapter number
                     if not any(s[2] == chap_num for s in sections):
                         sections.append((page_idx, full_title.strip(), chap_num))

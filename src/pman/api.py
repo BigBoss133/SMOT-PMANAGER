@@ -2,8 +2,7 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from pman.config import settings
 from pman.github import GitHubClient
@@ -37,7 +36,7 @@ async def list_projects():
 @app.post("/api/v1/sync/github")
 async def sync_github():
     """Forza sync repository GitHub."""
-    client = GitHubClient(token=settings.github_token)
+    _ = GitHubClient(token=settings.github_token)
     return {"status": "syncing", "token_set": bool(settings.github_token)}
 
 
