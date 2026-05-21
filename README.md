@@ -1,5 +1,7 @@
 # SMOT-PMANAGER
 
+[![CI](https://github.com/BigBoss133/SMOT-PMANAGER/actions/workflows/test.yml/badge.svg)](https://github.com/BigBoss133/SMOT-PMANAGER/actions/workflows/test.yml)
+
 > **SMOT Project Manager** — AI-driven project orchestration for the SMOT ecosystem.
 
 ---
