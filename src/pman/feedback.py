@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from pman.rag import RAGPipeline
+from pman.rag import RAGContext, RAGPipeline
 from pman.validator import CompletenessReport
 
 
@@ -28,6 +28,7 @@ class AIFeedbackGenerator:
         section_name: str,
         section_content: str,
         completeness: CompletenessReport,
+        rag_context: RAGContext | None = None,
     ) -> FeedbackReport:
         report = FeedbackReport()
         report.overall_score = completeness.overall_score
@@ -47,16 +48,20 @@ class AIFeedbackGenerator:
             ))
 
         if section_content and len(section_content.split()) > 10:
-            try:
-                rag_context = self.rag.query_section(section_name, section_content[:500])
-                if rag_context.chunks:
-                    report.items.append(FeedbackItem(
-                        section=section_name,
-                        severity="info",
-                        message=f"Found {len(rag_context.chunks)} relevant textbook passages",
-                        suggestion="Review these passages for best practices",
-                    ))
-            except Exception:
-                pass
+            if rag_context is None:
+                try:
+                    rag_context = self.rag.query_section(
+                        section_name, section_content[:500]
+                    )
+                except Exception:
+                    rag_context = None
+
+            if rag_context and rag_context.chunks:
+                report.items.append(FeedbackItem(
+                    section=section_name,
+                    severity="info",
+                    message=f"Found {len(rag_context.chunks)} relevant textbook passages",
+                    suggestion="Review these passages for best practices",
+                ))
 
         return report

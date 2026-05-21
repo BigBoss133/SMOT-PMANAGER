@@ -1,5 +1,5 @@
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from pman.editor import EditorManager
 from pman.models import Base
 from pman.orchestrator import FeedbackOrchestrator
+from pman.rag import RAGContext
 from pman.repository import ProjectRepository
 from pman.templates import TemplateGenerator
 from pman.validator import ProjectValidator
@@ -24,7 +25,7 @@ class TestEndToEndFlow:
             Session = async_sessionmaker(engine, expire_on_commit=False)
             async with Session() as session:
                 repo = ProjectRepository(session)
-                project = await repo.create_project("e2e-test")
+                await repo.create_project("e2e-test")
 
                 template = TemplateGenerator()
                 content = template.generate("e2e-test")
@@ -56,6 +57,10 @@ class TestEndToEndFlow:
 
         with patch.dict("os.environ", {"EDITOR": "cat", "PMAN_PROJECTS_DIR": tmp}):
             orchestrator = FeedbackOrchestrator()
+            orchestrator.rag = MagicMock()
+            orchestrator.rag.query_section.return_value = RAGContext(
+                question="", chunks=[]
+            )
 
             content = "## Project Charter\n" + "word " * 60 + "\n"
             content += "## Stakeholder Analysis & RACI Matrix\n" + "word " * 60 + "\n"

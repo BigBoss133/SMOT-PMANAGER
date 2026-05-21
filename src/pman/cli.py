@@ -47,7 +47,7 @@ async def _db_session():
 
 @plan_app.command()
 def new(name: str):
-    """Create a new project plan."""
+    """Create a new project plan and start the feedback loop."""
     asyncio.run(_new(name))
 
 
@@ -65,6 +65,14 @@ async def _new(name: str):
     if result.strip():
         editor.save_snapshot(result, name, 1)
         console.print(f"[green]Project '{name}' created (ID: {project.id})[/]")
+
+        orchestrator = FeedbackOrchestrator()
+        loop_result = await orchestrator.run_loop(name, initial_content=result)
+        console.print(
+            f"[green]Loop completed in {loop_result.iterations} iterations[/]"
+        )
+        if loop_result.completed:
+            console.print("[green]Project marked as done[/]")
     else:
         console.print("[yellow]Empty project — nothing saved[/]")
 
@@ -86,9 +94,12 @@ async def _continue(project_id: int):
 
     editor = EditorManager()
     content = editor.get_latest_content(project.name) or ""
+    next_iter = editor.get_next_iteration(project.name)
 
     orchestrator = FeedbackOrchestrator()
-    result = await orchestrator.run_loop(project.name, initial_content=content)
+    result = await orchestrator.run_loop(
+        project.name, initial_content=content, start_iteration=next_iter
+    )
 
     console.print(f"[green]Loop completed in {result.iterations} iterations[/]")
     if result.completed:

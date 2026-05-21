@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from pman.editor import EditorManager
 from pman.feedback import AIFeedbackGenerator, FeedbackReport
+from pman.rag import RAGPipeline
 from pman.templates import TemplateGenerator
 from pman.validator import ProjectValidator
 
@@ -23,16 +24,18 @@ class FeedbackOrchestrator:
         self.validator = ProjectValidator()
         self.feedback = AIFeedbackGenerator()
         self.template = TemplateGenerator()
+        self.rag = RAGPipeline()
 
     async def run_loop(
         self,
         project_name: str,
         initial_content: str | None = None,
+        start_iteration: int = 1,
     ) -> LoopResult:
         result = LoopResult()
         content = initial_content or self.template.generate(project_name)
 
-        for iteration in range(1, self.MAX_ITERATIONS + 1):
+        for iteration in range(start_iteration, self.MAX_ITERATIONS + 1):
             result.iterations = iteration
 
             content = await asyncio.to_thread(
@@ -49,11 +52,15 @@ class FeedbackOrchestrator:
 
             sections = self.validator.parse_sections(content)
             for section_name, section_text in sections.items():
+                rag_context = await asyncio.to_thread(
+                    self.rag.query_section, section_name, section_text[:500]
+                )
                 report = await asyncio.to_thread(
                     self.feedback.generate_feedback,
                     section_name,
                     section_text,
                     completeness,
+                    rag_context,
                 )
                 result.feedback_reports.append(report)
 
@@ -77,9 +84,13 @@ class FeedbackOrchestrator:
         sections = self.validator.parse_sections(content)
         section_text = sections.get(section, "")
         completeness = self.validator.check_completeness(content)
+        rag_context = await asyncio.to_thread(
+            self.rag.query_section, section, section_text[:500]
+        )
         return await asyncio.to_thread(
             self.feedback.generate_feedback,
             section,
             section_text,
             completeness,
+            rag_context,
         )

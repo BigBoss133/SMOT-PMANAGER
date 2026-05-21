@@ -65,3 +65,11 @@ class EditorManager:
         if snapshots:
             return snapshots[-1].read_text(encoding="utf-8")
         return None
+
+    def get_next_iteration(self, project_name: str) -> int:
+        project_dir = self.projects_dir / project_name
+        snapshots = list(project_dir.glob("draft_v*.md"))
+        if not snapshots:
+            return 1
+        max_iter = max(int(p.stem.split("_v")[1]) for p in snapshots)
+        return max_iter + 1
