@@ -1,4 +1,5 @@
 import asyncio
+import json
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -197,12 +198,13 @@ def export(
     project_id: int = typer.Argument(..., help="Project ID to export"),
     populate_db: bool = typer.Option(False, "--populate-db", help="Populate execution tables"),
     bundle: bool = typer.Option(False, "--bundle", help="Generate Excel + Sponsor email"),
+    json_output: bool = typer.Option(False, "--json", help="Print bundle data as JSON"),
 ):
     """Export project plan to markdown."""
-    asyncio.run(_export(project_id, populate_db, bundle))
+    asyncio.run(_export(project_id, populate_db, bundle, json_output))
 
 
-async def _export(project_id: int, populate_db: bool, bundle: bool):
+async def _export(project_id: int, populate_db: bool, bundle: bool, json_output: bool):
     async with _db_session() as session:
         repo = ProjectRepository(session)
         project = await repo.get_project(project_id)
@@ -218,12 +220,16 @@ async def _export(project_id: int, populate_db: bool, bundle: bool):
     export_path.write_text(content, encoding="utf-8")
     console.print(f"[green]Exported to {export_path}[/]")
 
-    if bundle:
+    if bundle or json_output:
         generator = BundleGenerator(project.name, content, export_path.parent)
-        excel_path = generator.generate_excel()
-        email_path = generator.generate_email()
-        console.print(f"[green]Bundle created: {excel_path}[/]")
-        console.print(f"[green]Sponsor email: {email_path}[/]")
+        if bundle:
+            excel_path = generator.generate_excel()
+            email_path = generator.generate_email()
+            console.print(f"[green]Bundle created: {excel_path}[/]")
+            console.print(f"[green]Sponsor email: {email_path}[/]")
+        if json_output:
+            data = generator.to_dict()
+            console.print(json.dumps(data, indent=2, default=str))
 
     if populate_db:
         validator = ProjectValidator()
