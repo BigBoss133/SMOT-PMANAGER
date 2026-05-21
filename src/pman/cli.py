@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from pman.bundle import BundleGenerator
 from pman.config import settings
 from pman.editor import EditorManager
 from pman.github import GitHubClient
@@ -195,12 +196,13 @@ async def _check(project_id: int, section: str):
 def export(
     project_id: int = typer.Argument(..., help="Project ID to export"),
     populate_db: bool = typer.Option(False, "--populate-db", help="Populate execution tables"),
+    bundle: bool = typer.Option(False, "--bundle", help="Generate Excel + Sponsor email"),
 ):
     """Export project plan to markdown."""
-    asyncio.run(_export(project_id, populate_db))
+    asyncio.run(_export(project_id, populate_db, bundle))
 
 
-async def _export(project_id: int, populate_db: bool):
+async def _export(project_id: int, populate_db: bool, bundle: bool):
     async with _db_session() as session:
         repo = ProjectRepository(session)
         project = await repo.get_project(project_id)
@@ -215,6 +217,13 @@ async def _export(project_id: int, populate_db: bool):
     export_path = Path(settings.projects_dir) / project.name / "plan_export.md"
     export_path.write_text(content, encoding="utf-8")
     console.print(f"[green]Exported to {export_path}[/]")
+
+    if bundle:
+        generator = BundleGenerator(project.name, content, export_path.parent)
+        excel_path = generator.generate_excel()
+        email_path = generator.generate_email()
+        console.print(f"[green]Bundle created: {excel_path}[/]")
+        console.print(f"[green]Sponsor email: {email_path}[/]")
 
     if populate_db:
         validator = ProjectValidator()
