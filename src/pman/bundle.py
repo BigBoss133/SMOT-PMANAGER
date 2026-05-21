@@ -50,12 +50,17 @@ class BundleGenerator:
         ws.append(["Role", "Responsible", "Accountable", "Consulted", "Informed"])
         ws[1][0].font = Font(bold=True)
         for row in self.blocks.get("raci", {}).get("raci_matrix", []):
+            def _val(key: str) -> str:
+                v = row.get(key, "")
+                if isinstance(v, list):
+                    return ", ".join(v)
+                return str(v)
             ws.append([
-                row.get("role", ""),
-                row.get("responsible", ""),
-                row.get("accountable", ""),
-                row.get("consulted", ""),
-                row.get("informed", ""),
+                _val("role"),
+                _val("responsible"),
+                _val("accountable"),
+                _val("consulted"),
+                _val("informed"),
             ])
 
     def _add_risks_sheet(self, wb: Workbook) -> None:

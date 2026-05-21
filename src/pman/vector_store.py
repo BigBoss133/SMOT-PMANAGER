@@ -126,6 +126,9 @@ class VectorStore:
         return self.search(query_embedding, k=k, filter_metadata={"topic": topic})
 
     def initialize_from_pdf(self, pdf_path: str | None = None) -> None:
+        if self.is_initialized():
+            return
+
         pdf_path = pdf_path or settings.rag_pdf_path
         extractor = PDFExtractor(pdf_path)
         chapters = extractor.extract_chapters()
