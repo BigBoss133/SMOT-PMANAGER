@@ -18,7 +18,7 @@ import time
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from pman.config import settings
 from pman.errors import AIError
@@ -43,8 +43,8 @@ class AIProvider(ABC):
         self,
         prompt: str,
         system: str = "",
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """Generate a completion for *prompt*.
 
@@ -105,8 +105,8 @@ class OllamaProvider(AIProvider):
         self,
         prompt: str,
         system: str = "",
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         self._check_circuit()
 
@@ -165,8 +165,8 @@ class OpenAIProvider(AIProvider):
         self,
         prompt: str,
         system: str = "",
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         messages = [{"role": "user", "content": prompt}]
         if system:
