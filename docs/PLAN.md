@@ -5,15 +5,16 @@
 > **Quick Summary**: Estendere il repo SMOT-PMANAGER con un sistema CLI che apre un editor markdown, guida l'utente nella compilazione di un Project Plan, e usa AI (RAG su dispensa universitaria) per fornire feedback iterativo fino al completamento.
 >
 > **Deliverables**:
-> - Pipeline RAG su dispensa 134pp (PDF → chunk → embedding → ChromaDB)
-> - Loop editor esterno + AI feedback (analizza, suggerisci, itera)
-> - 5 comandi CLI (`plan new/continue/status/export/list`)
-> - Supporto AI duale (Ollama locale + API cloud)
-> - Project Plan completo in markdown
+> - Pipeline RAG su dispensa 134pp (PyMuPDF → chunk metadata → embedding → ChromaDB)
+> - Loop editor esterno + AI feedback (section-based, advisory mode, cross-OS)
+> - 7 comandi CLI (`plan new/check/continue/status/export/list` + `backup`)
+> - Supporto AI duale (Ollama locale con circuit breaker + API cloud)
+> - CI/CD automatica con GitHub Actions
+> - Project Plan in Markdown + blocchi YAML strutturati
 >
-> **Estimated Effort**: Large (21 task + 4 verification)
+> **Estimated Effort**: Large (26 task + 4 verification)
 > **Parallel Execution**: YES — 4 waves
-> **Critical Path**: T6 (template) → T11 (loop orchestrator) → T13-T17 (CLI) → T21 (E2E tests) → F1-F4
+> **Critical Path**: T6 (template) → T11 (loop orchestrator) → T15 (CLI) → T21 (E2E) → T25 (backup) → F1-F4
 
 ---
 
@@ -188,29 +189,31 @@ Evidence salvata in `.sisyphus/evidence/task-{N}-{scenario-slug}.{ext}`.
 ```
 Wave 1 (Start Immediately — fondazione + scaffolding):
 ├── T1: Test infrastructure setup [quick]
-├── T2: PDF text extraction pipeline [quick]
+├── T2: PDF text extraction (PyMuPDF primario, cross-OS) [quick]
 ├── T3: PDF chunking + embedding pipeline [deep]
 ├── T4: ChromaDB vector store integration [deep]
 ├── T5: Config expansion (RAG + AI provider settings) [quick]
-├── T6: Project template markdown generator [quick]
-└── T7: Editor invocation + temp file management [quick]
+├── T6: Project template markdown + YAML generator [quick]
+├── T7: Editor invocation (cross-OS: $EDITOR → notepad su Windows) + temp files [quick]
+└── T26: CI/CD GitHub Actions workflow [quick]
 
 Wave 2 (After Wave 1 — core logic, MAX PARALLEL):
-├── T8: Markdown parser + section validator [quick]
-├── T9: RAG query pipeline (search + context building) [deep]
-├── T10: AI feedback generator (prompt engineering + LLM) [deep]
-├── T11: Feedback loop orchestrator [deep]
-├── T12: Project CRUD operations (SQLite persistence) [quick]
-├── T13: Cloud AI provider integration [unspecified-high]
+├── T8: Markdown parser + YAML validator [quick]
+├── T9: RAG query pipeline (metadata filtering) [deep]
+├── T10: AI feedback generator (blocker/warning separation) [deep]
+├── T11: Feedback loop orchestrator (section-based, advisory) [deep]
+├── T12: Project CRUD (modelli espansi: WBSTask, Issue, Risk) [quick]
+├── T13: Cloud AI provider + Ollama circuit breaker [unspecified-high]
 └── T14: Error handling + graceful degradation [quick]
 
 Wave 3 (After Wave 2 — CLI commands):
 ├── T15: `pman plan new` command [visual-engineering]
 ├── T16: `pman plan continue` command [quick]
-├── T17: `pman plan status` command [quick]
-├── T18: `pman plan export` command [quick]
+├── T17: `pman plan status --force-complete` command [quick]
+├── T18: `pman plan export --populate-db` command [quick]
 ├── T19: `pman plan list` command [quick]
-└── T20: CLI integration + refactoring [quick]
+├── T20: CLI integration + refactoring [quick]
+└── T25: `pman backup` command [quick]
 
 Wave 4 (After Wave 3 — integration + polish):
 ├── T21: End-to-end integration tests [deep]
@@ -226,9 +229,9 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
 → Present results → Get explicit user okay
 ```
 
-Critical Path: T1 → T6 → T11 → T15 → T21 → F1-F4 → user okay
-Parallel Speedup: ~60% faster than sequential
-Max Concurrent: 7 (Waves 1, 2)
+Critical Path: T1 → T6 → T11 → T15 → T21 → T25 → F1-F4 → user okay
+Parallel Speedup: ~65% faster than sequential
+Max Concurrent: 8 (Waves 1, 2)
 
 ### Dependency Matrix
 
@@ -246,7 +249,7 @@ Max Concurrent: 7 (Waves 1, 2)
 | T10 | 11 | 5 (config), 9 (RAG context) |
 | T11 | 15, 16 | 8 (validator YAML), 9 (RAG filtered), 10 (feedback), 14 (errors) |
 | T12 | 15, 16, 17, 18, 19 | 1 (test) — models.py esteso con WBSTask, Issue, Risk |
-| T13 | 15 | 5 (config) |
+| T13 | 15 | 5 (config) — include Ollama circuit breaker |
 | T14 | 11, 16 | — |
 | T15 | 21 | 6 (template), 7 (editor), 11 (loop), 12 (CRUD), 13 (cloud AI) |
 | T16 | 21 | 11 (loop), 12 (CRUD), 14 (errors) |
@@ -258,12 +261,14 @@ Max Concurrent: 7 (Waves 1, 2)
 | T22 | — | 7 (editor), 14 (errors) |
 | T23 | — | 21 (E2E) |
 | T24 | — | 21 (E2E) |
+| T25 | — | 12 (CRUD) — backup workspace completo |
+| T26 | — | — (indipendente) — CI/CD GitHub Actions |
 
 ### Agent Dispatch Summary
 
-- **Wave 1**: 7 — T1→quick, T2→quick, T3→deep, T4→deep, T5→quick, T6→quick, T7→quick
+- **Wave 1**: 8 — T1→quick, T2→quick, T3→deep, T4→deep, T5→quick, T6→quick, T7→quick, T26→quick
 - **Wave 2**: 7 — T8→quick, T9→deep, T10→deep, T11→deep, T12→quick, T13→unspecified-high, T14→quick
-- **Wave 3**: 6 — T15→visual-engineering, T16-T19→quick, T20→quick
+- **Wave 3**: 7 — T15→visual-engineering, T16-T19→quick, T20→quick, T25→quick
 - **Wave 4**: 4 — T21→deep, T22→quick, T23→deep, T24→quick
 - **FINAL**: 4 — F1→oracle, F2→unspecified-high, F3→unspecified-high, F4→deep
 
@@ -343,8 +348,11 @@ Max Concurrent: 7 (Waves 1, 2)
   - Implementare `extract_chapters(pdf_path) -> list[Chapter]` che suddivide per capitolo (basato su "CAPITOLO X:" pattern)
   - **CRITICO (Falla 4)**: Ogni `Chapter` DEVE includere `number`, `title`, `topic` (topic mappato dal titolo: es. "WBS" → "wbs", "Rischi" → "risks") come metadati per il RAG metadata filtering
   - Mappatura chapter→topic predefinita: Cap 7 → "charter", Cap 8-9 → "stakeholder/raci", Cap 13-14 → "wbs", Cap 17 → "budget", Cap 18 → "risks", Cap 28-34 → "agile"
-  - Aggiungere `pymupdf` a pyproject.toml come dipendenza opzionale
-  - Gestire errori: file non trovato, PDF corrotto, testo non estraibile
+  - **CRITICO (OS Portability)**: PyMuPDF (`fitz`) è il motore PRIMARIO. `pdftotext` è fallback opzionale.
+    - PyMuPDF è una libreria Python pura: funziona su Linux, macOS e Windows con `pip install pymupdf`
+    - `pdftotext` richiede Poppler (non nativo su Windows) → usato solo come fallback se PyMuPDF non disponibile
+  - Aggiungere `pymupdf` a pyproject.toml come dipendenza OBBLIGATORIA (non opzionale)
+  - Gestire errori: file non trovato, PDF corrotto, testo non estraibile (con messaggio chiaro se nessun motore disponibile)
   - Test TDD: PDF valido, PDF vuoto, PDF inesistente + verifica metadati chapter
 
   **Must NOT do**:
@@ -679,7 +687,9 @@ Max Concurrent: 7 (Waves 1, 2)
   - Implementare `open_editor(template: str, project_name: str) -> str`:
     - Crea file temporaneo in `~/.pman/projects/{name}/draft.md`
     - Popola con il template
-    - Invoca `$EDITOR` (fallback: `nano`, poi `vim`)
+    - **CRITICO (OS Portability)**: Rilevamento OS con `platform.system()`:
+      - **Linux/macOS**: `$EDITOR` → `nano` → `vim` (fallback a catena)
+      - **Windows**: `$EDITOR` → `notepad` → prova `code --wait` (VS Code)
     - Attende chiusura editor
     - Restituisce contenuto del file
   - Implementare `save_snapshot(content, project_id, iteration)` — salva versione per recovery
@@ -1137,7 +1147,7 @@ Max Concurrent: 7 (Waves 1, 2)
   - Message: `feat(pman): add project CRUD with async SQLAlchemy persistence`
   - Files: `src/pman/database.py`, `src/pman/repository.py`, `tests/test_repository.py`
 
-- [ ] 13. **Cloud AI Provider Integration**
+- [ ] 13. **AI Provider Integration (Cloud + Ollama Circuit Breaker)**
 
   **What to do**:
   - Implementare `OpenAIProvider` in `src/pman/ai_providers.py`:
@@ -1145,16 +1155,22 @@ Max Concurrent: 7 (Waves 1, 2)
     - Supportare `gpt-4o-mini` e `gpt-4o` modelli
     - Gestire rate limiting (retry con exponential backoff)
   - Aggiungere `ClaudeProvider` opzionale (API Anthropic)
-  - Aggiungere timeout configurabile (default 30s)
-  - Test TDD: mock httpx per test deterministici, test rate limit retry
+  - **CRITICO (Circuit Breaker)**: Aggiungere circuit breaker anche a `OllamaProvider`:
+    - Timeout esplicito di 15 secondi per il primo token (TTFT — Time To First Token)
+    - Timeout totale di 120 secondi per la generazione completa
+    - Se Ollama non risponde entro 15s → interrompere la richiesta, mostrare messaggio "Ollama non risponde. Provare con --provider openai o riprovare più tardi."
+    - Circuit breaker stateful: 3 timeout consecutivi → disabilita Ollama per la sessione corrente
+  - Aggiungere timeout configurabili in `config.py`: `ollama_timeout_first_token`, `ollama_timeout_total`
+  - Test TDD: mock httpx per test deterministici, test rate limit retry, test circuit breaker
 
   **Must NOT do**:
   - Non hardcodare API key
   - Non chiamare cloud se provider è "ollama"
+  - Non bloccare il terminale per più di 15s senza feedback
 
   **Recommended Agent Profile**:
   - **Category**: `unspecified-high`
-    - Reason: Integrazione API esterne con retry logic, complessità media
+    - Reason: Integrazione API + pattern circuit breaker, complessità medio-alta
   - **Skills**: []
   - **Skills Evaluated but Omitted**:
     - `testing`: TDD con mock
@@ -1950,6 +1966,153 @@ Max Concurrent: 7 (Waves 1, 2)
   - Message: `refactor(pman): async ollama, fix bugs, align imports, clean stubs`
   - Files: `src/pman/ollama.py`, `src/pman/github.py`, `src/pman/api.py`
 
+- [ ] 25. **`pman backup` Command (Portabilità Workspace)**
+
+  **What to do**:
+  - Aggiungere comando `backup` a `src/pman/cli.py`:
+    ```
+    pman backup [--dest /path/to/save] [--restore /path/to/archive.zip]
+    ```
+  - **CRITICO (Backup/Portabilità)**: `pman backup --dest /backup/path`:
+    - Comprime l'intera cartella `~/.pman/` (DB SQLite, ChromaDB, progetti markdown, config) in un archivio ZIP
+    - Include `.env` (senza API key, sostituite con `***`)
+    - Nomina l'archivio: `pman-backup-YYYYMMDD-HHMMSS.zip`
+    - Mostra dimensione archivio e file contenuti
+  - `pman backup --restore /path/to/archive.zip`:
+    - Estrae l'archivio in `~/.pman/`
+    - Verifica integrità (DB non corrotto, ChromaDB compatibile)
+    - Chiede conferma prima di sovrascrivere
+  - Test TDD: backup crea archivio valido, restore funziona, restore rifiuta archivio corrotto
+
+  **Must NOT do**:
+  - Non includere API key in chiaro nell'archivio
+  - Non sovrascrivere senza conferma
+
+  **Recommended Agent Profile**:
+  - **Category**: `quick`
+    - Reason: Compressione file system + verifica integrità
+  - **Skills**: []
+
+  **Parallelization**:
+  - **Can Run In Parallel**: YES
+  - **Parallel Group**: Wave 3 (with CLI commands)
+  - **Blocks**: None
+  - **Blocked By**: T12 (CRUD per conoscere struttura dati)
+
+  **References**:
+  - `src/pman/config.py` — `projects_dir`, `chroma_path`, `db_path` settings
+  - `src/pman/cli.py` — Pattern comandi Typer
+
+  **Acceptance Criteria**:
+  - [ ] `pman backup --dest /tmp/` crea archivio ZIP > 0 bytes
+  - [ ] Archivio contiene: `pman.db`, `chromadb/`, `projects/`, `.env` (sanitized)
+  - [ ] `pman backup --restore /tmp/pman-backup.zip` ripristina workspace
+  - [ ] Archivio corrotto → errore chiaro, nessun ripristino parziale
+
+  **QA Scenarios**:
+  ```
+  Scenario: Backup creates valid archive
+    Tool: Bash
+    Preconditions: At least 1 project exists
+    Steps:
+      1. Run: pman backup --dest /tmp/
+      2. Assert: file created matching pman-backup-*.zip
+      3. Assert: file size > 0
+      4. Run: unzip -l /tmp/pman-backup-*.zip
+      5. Assert: contains pman.db, chromadb/, projects/
+    Expected Result: Complete workspace archive
+    Evidence: .sisyphus/evidence/task-25-backup.txt
+
+  Scenario: Restore recovers workspace
+    Tool: Bash
+    Preconditions: Backup archive exists, ~/.pman/ deleted
+    Steps:
+      1. Delete ~/.pman/
+      2. Run: pman backup --restore /tmp/pman-backup-*.zip
+      3. Assert: ~/.pman/ restored with all files
+      4. Run: pman plan list
+      5. Assert: projects visible again
+    Expected Result: Full workspace recovery
+    Evidence: .sisyphus/evidence/task-25-restore.txt
+  ```
+
+  **Commit**: YES (groups with Wave 3)
+  - Message: `feat(pman): add backup/restore command for workspace portability`
+  - Files: `src/pman/cli.py`, `tests/test_cli_backup.py`
+
+- [ ] 26. **CI/CD GitHub Actions Workflow**
+
+  **What to do**:
+  - Creare `.github/workflows/test.yml`:
+    ```yaml
+    name: Test & Lint
+    on: [push, pull_request]
+    jobs:
+      test:
+        runs-on: ubuntu-latest
+        strategy:
+          matrix:
+            python-version: ["3.12"]
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-python@v5
+            with:
+              python-version: ${{ matrix.python-version }}
+          - run: pip install -e ".[dev]"
+          - run: ruff check src/pman/
+          - run: pytest tests/ -v --cov=src/pman --cov-fail-under=80
+    ```
+  - **CRITICO (CI/CD)**: Garantisce che ogni push/PR esegua automaticamente:
+    - Linting con ruff
+    - Suite di test con coverage ≥ 80%
+    - Blocco merge se i test falliscono
+  - Aggiungere badge nel README: `[![CI](https://github.com/BigBoss133/SMOT-PMANAGER/actions/workflows/test.yml/badge.svg)]`
+  - Test: verifica manuale che la workflow parta su push
+
+  **Must NOT do**:
+  - Non eseguire test che richiedono Ollama (solo mock)
+  - Non caricare API key reali nei secrets (per ora)
+
+  **Recommended Agent Profile**:
+  - **Category**: `quick`
+    - Reason: File YAML standard GitHub Actions
+  - **Skills**: []
+
+  **Parallelization**:
+  - **Can Run In Parallel**: YES
+  - **Parallel Group**: Wave 1 (con altri task di setup)
+  - **Blocks**: None
+  - **Blocked By**: None (indipendente)
+
+  **References**:
+  - `pyproject.toml` — Dipendenze dev (ruff, pytest, pytest-cov)
+  - GitHub Actions docs: `setup-python`, `actions/checkout`
+
+  **Acceptance Criteria**:
+  - [ ] `.github/workflows/test.yml` esiste con sintassi YAML valida
+  - [ ] Push attiva la workflow su GitHub Actions
+  - [ ] Workflow esegue `ruff check` e `pytest`
+  - [ ] Badge CI nel README
+
+  **QA Scenarios**:
+  ```
+  Scenario: Workflow triggers on push
+    Tool: GitHub Actions UI
+    Preconditions: Workflow file committed and pushed
+    Steps:
+      1. Push any commit to main
+      2. Navigate to Actions tab on GitHub
+      3. Assert: workflow "Test & Lint" is running
+      4. Wait for completion
+      5. Assert: all jobs pass (green checkmark)
+    Expected Result: CI passes automatically
+    Evidence: .sisyphus/evidence/task-26-ci-passed.png
+  ```
+
+  **Commit**: YES (groups with Wave 1)
+  - Message: `ci: add GitHub Actions workflow for lint + test`
+  - Files: `.github/workflows/test.yml`, `README.md`
+
 ---
 
 ## Final Verification Wave
@@ -1975,9 +2138,9 @@ Max Concurrent: 7 (Waves 1, 2)
 
 ## Commit Strategy
 
-- **Wave 1**: `feat(pman): add test infra, PDF extraction with metadata, RAG pipeline with chunk metadata` — T1-T7
-- **Wave 2**: `feat(pman): add YAML validator, RAG metadata filter, AI feedback blockers/warnings, orchestrator advisory mode, CRUD expanded models` — T8-T14
-- **Wave 3**: `feat(pman): add plan CLI (new/check --section/continue/status --force-complete/export --populate-db/list)` — T15-T20
+- **Wave 1**: `feat(pman): add test infra, PyMuPDF extraction with metadata, RAG pipeline, cross-OS editor, CI/CD` — T1-T7, T26
+- **Wave 2**: `feat(pman): add YAML validator, RAG metadata filter, AI feedback blockers/warnings, orchestrator advisory mode, CRUD expanded models, Ollama circuit breaker` — T8-T14
+- **Wave 3**: `feat(pman): add plan CLI (new/check --section/continue/status --force-complete/export --populate-db/list/backup)` — T15-T20, T25
 - **Wave 4**: `feat(pman): add E2E tests, session recovery, cache, async refactor` — T21-T24
 - **FINAL**: `chore(pman): final verification and cleanup` — F1-F4
 
